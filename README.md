@@ -1,5 +1,5 @@
 # Converts Glow baby-tracking PDFs into CSV format
 
-The Glow baby-tracking app is generally lovely but provides a data export as PDF :(
+The [Glow baby-tracking app](https://play.google.com/store/apps/details?id=com.glow.android.baby&hl=en_US) is generally lovely but it provides a data export as PDF :(
 
-This package parses the Glow PDF exports and writes them to a CSV.
+This set of scripts parses the weekly Glow PDF export and write it to CSV.
