@@ -50,6 +50,7 @@ def _write_tmp_jpg(pdf_path, pdf_page="ALL"):
 
 
 def _read_and_process_tmp_jpg(filename):
+    """Process tmp image and extract event history."""
     date_str = os.path.splitext(filename)[0].split("_")[-1]
     jpg_file = os.path.join(TEMP_DIR, filename, "1_" + filename + ".jpg")
     start_date = datetime.date(
@@ -86,8 +87,8 @@ def _extract_window(pixels, day, bin_num, date):
         "breastfeeding", pixels, start_i, end_i, start_j, end_j)
     raw_diapers = extract_timeseries(
         "diapers", pixels, start_i, end_i, start_j, end_j)
-    feedings = process_timeseries(raw_feedings, day, bin_num, date)
-    diapers = process_timeseries(raw_diapers, day, bin_num, date)
+    feedings = process_timeseries(raw_feedings, bin_num, date)
+    diapers = process_timeseries(raw_diapers, bin_num, date)
     return feedings, diapers
 
 
@@ -104,8 +105,17 @@ def _get_color_range(r, g, b):
         return None
 
 
-def process_timeseries(values, day, bin_num, date):
-    """Convert array of pixel values into event starts and durations."""
+def process_timeseries(values, bin_num, date):
+    """Convert array of pixel values into event timestamps and durations.
+
+    Args:
+        values: an array in which each value indicates the presence or absence
+        of an event at that pixel.
+        date: datetime for target day
+        bin_num: 0-5 integer specifying a 4 hr bin of the day
+    Returns:
+        Array of (datetime, duration) tuples representing the events in question
+    """
     results = []
     prev_val, current_duration = 0, 0
     for i, val in enumerate(values):
