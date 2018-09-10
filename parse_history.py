@@ -2,6 +2,7 @@ import datetime
 import os
 
 import numpy as np
+import pandas as pd
 from PIL import Image
 from pdf2jpg import pdf2jpg
 
@@ -30,20 +31,20 @@ WHITE = "WHITE"
 DARK = "DARK"
 
 
-def get_color_range(r, g, b):
-    """Returns the appropriate color range for rgb value."""
-    THRESHOLD = 235
-    if r == g == b:
-        return WHITE if r >= THRESHOLD else DARK
-    elif b >= THRESHOLD and r < THRESHOLD and g < THRESHOLD:
-        return BLUE
-    elif r > THRESHOLD and b < THRESHOLD and g < THRESHOLD:
-        return YELLOW
-    else:
-        return None
+def extract(PDF_DIR, filename):
+    """Extract event history from PDF.
+
+    Individual events (feedings, diaper changes, etc.) are provided in the
+    pdf exports as a calendar graphic. Events are extracted by converting
+    the pdg to an image and processing the pixel values."""
+
+    pdf_path = os.path.join(PDF_DIR, filename)
+    # _write_tmp_jpg(pdf_path, pdf_page="1")
+    return _read_and_process_tmp_jpg(filename)
 
 
 def _write_tmp_jpg(pdf_path, pdf_page="ALL"):
+    """Write event history page of PDF to a temporary jpg file."""
     result = pdf2jpg.convert_pdf2jpg(pdf_path, TEMP_DIR, pages=pdf_page)
     print(result)
 
@@ -56,44 +57,57 @@ def _read_and_process_tmp_jpg(filename):
     print("Extracting history from %s" % jpg_file)
     img = Image.open(jpg_file)
     pixels = img.load()
-    extract_windows(pixels, start_date)
+    return _extract_windows(pixels, start_date)
 
 
-def extract_history_as_image(PDF_DIR, filename):
-    pdf_path = os.path.join(PDF_DIR, filename)
-    # _write_tmp_jpg(pdf_path, pdf_page="1")
-    _read_and_process_tmp_jpg(filename)
-
-
-def extract_windows(pixels, start_date):
-    feedings, diapers = [], []
+def _extract_windows(pixels, start_date):
+    """Extract events from image and return as dataframe."""
+    columns = ["timestamp", "event", "duration"]
+    data = []
     for day in range(NUM_DAYS):
         date = start_date + datetime.timedelta(days=6 - day)
         for bin_num in range(NUM_BINS):
-            window_feedings, window_diapers = extract_window(
+            window_feedings, window_diapers = _extract_window(
                 pixels, day, bin_num, date)
-            feedings.extend(window_feedings)
-            diapers.extend(window_diapers)
-    print(feedings)
-    print(diapers)
+            for (dt, duration) in window_feedings:
+                data.append([dt, "breastfeeding", duration])
+            for (dt, duration) in window_diapers:
+                data.append([dt, "diaper", np.nan])
+    return pd.DataFrame(columns=columns, data=data)
 
 
-def extract_window(pixels, day, bin_num, date):
+def _extract_window(pixels, day, bin_num, date):
+    """Extract events from a single event window."""
     start_i = START_COORDINATE[0] + SEGMENT_WIDTH * bin_num
     start_j = START_COORDINATE[1] + DAY_HEIGHT * day
     end_i = start_i + SEGMENT_WIDTH
     end_j = start_j + DAY_HEIGHT
-    raw_feedings, raw_diapers = get_timeseries(
-        pixels, start_i, end_i, start_j, end_j)
-    feedings = parse_timeseries(raw_feedings, day, bin_num, date)
-    diapers = parse_timeseries(raw_diapers, day, bin_num, date)
+    raw_feedings = extract_timeseries(
+        "breastfeeding", pixels, start_i, end_i, start_j, end_j)
+    raw_diapers = extract_timeseries(
+        "diapers", pixels, start_i, end_i, start_j, end_j)
+    feedings = process_timeseries(raw_feedings, day, bin_num, date)
+    diapers = process_timeseries(raw_diapers, day, bin_num, date)
     return feedings, diapers
 
 
-def parse_timeseries(values, day, bin_num, date):
+def _get_color_range(r, g, b):
+    """Returns the appropriate color range for rgb value."""
+    THRESHOLD = 235
+    if r == g == b:
+        return WHITE if r >= THRESHOLD else DARK
+    elif b >= THRESHOLD and r < THRESHOLD and g < THRESHOLD:
+        return BLUE
+    elif r > THRESHOLD and b < THRESHOLD and g < THRESHOLD:
+        return YELLOW
+    else:
+        return None
+
+
+def process_timeseries(values, day, bin_num, date):
+    """Convert array of pixel values into event starts and durations."""
     results = []
-    prev_val = 0
-    current_duration = 0
+    prev_val, current_duration = 0, 0
     for i, val in enumerate(values):
         if val == 1:
             current_duration += 1
@@ -114,37 +128,44 @@ def parse_timeseries(values, day, bin_num, date):
     return results
 
 
-def get_timeseries(pixels, start_i, end_i, start_j, end_j):
-    raw_feedings = []
-    raw_diapers = []
-    for x in range(start_i, end_i):
-        # Handle feeding range of the segment
-        feeding_start = start_j + PADDING_HEIGHT
-        feeding_end = feeding_start + FEEDING_HEIGHT
-        feeding_color = _get_average_rgb(
-            pixels, x, x + 1, feeding_start, feeding_end)
-        if get_color_range(*feeding_color) == WHITE:
-            raw_feedings.append(0)
-        elif get_color_range(*feeding_color) == YELLOW:
-            raw_feedings.append(1)
-        else:
-            raw_feedings.append(np.nan)
+def extract_timeseries(timeseries_type, pixels, start_i, end_i, start_j, end_j):
+    """Extract a timeseries from a set of pixel values.
 
-        # Handle diaper range of the segment
-        diaper_start = feeding_end + PADDING_HEIGHT
-        diaper_end = diaper_start + DIAPER_HEIGHT
-        diaper_color = _get_average_rgb(
-            pixels, x, x + 1, diaper_start, diaper_end)
-        if get_color_range(*diaper_color) == WHITE:
-            raw_diapers.append(0)
-        elif get_color_range(*diaper_color) == BLUE:
-            raw_diapers.append(1)
+    Returns an array corresponding to the time (x) dimension with a 1 if the
+    specified event is occuring at that pixel, a 0 if the event is absent."""
+
+    if timeseries_type == "breastfeeding":
+        target_color = YELLOW
+        vertical_start = start_j + PADDING_HEIGHT
+        vertical_end = vertical_start + FEEDING_HEIGHT
+    elif timeseries_type == "diapers":
+        target_color = BLUE
+        vertical_start = start_j + PADDING_HEIGHT * 2 + FEEDING_HEIGHT
+        vertical_end = vertical_start + DIAPER_HEIGHT
+    else:
+        raise ValueError("Invalid type %s" % timeseries_type)
+
+    results = []
+    for x in range(start_i, end_i):
+        # For each pixel along the X dimension, get the average RGB value over
+        # the relevant range of the Y dimension
+        rgb_color = _get_average_rgb(
+            pixels, x, x + 1, vertical_start, vertical_end)
+        color_range = _get_color_range(*rgb_color)
+        if color_range == WHITE:
+            results.append(0)
+        elif color_range == target_color:
+            results.append(1)
         else:
-            raw_diapers.append(np.nan)
-    return raw_feedings, raw_diapers
+            results.append(np.nan)
+    return results
 
 
 def _get_average_rgb(pixels, start_i, end_i, start_j, end_j):
+    """Compute the average rgb values for a matrix.
+
+    Given a matrix defined by start and end coordinates, calculate the
+    average rgb value within the matrix."""
     reds, greens, blues = [], [], []
     for i in range(start_i, end_i):
         for j in range(start_j, end_j):
