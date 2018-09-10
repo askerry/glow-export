@@ -5,6 +5,8 @@ import pandas as pd
 import numpy as np
 import tabula
 
+import parse_history
+
 PDF_DIR = "pdfs"
 OUTPUT_DIR = "csvs"
 
@@ -135,6 +137,7 @@ if __name__ == "__main__":
         if not f.endswith(".pdf"):
             continue
         rows.append(parse_summary(f))
+        parse_history.extract_history_as_image(PDF_DIR, f)
 
     # Create single concatenated file for all weekly summaries
     df = pd.concat(rows).sort_values(by="week_start_date")
