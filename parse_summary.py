@@ -1,3 +1,5 @@
+"""Parses summary tables with aggregate stats from Glow PDF export."""
+
 import os
 import re
 

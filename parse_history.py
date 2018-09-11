@@ -1,3 +1,11 @@
+"""Extract individual events from calendar graphic in Glow PDF export.
+
+Individual events (e.g. feedings, diaper changes) are contained in Glow
+data exports only in the form of a calendar-like graphic representation.
+This script parses the image (using hard-coded assumptions about the pixel
+layout) to extract a raw event history.
+"""
+
 import datetime
 import os
 
@@ -45,6 +53,8 @@ def extract(PDF_DIR, filename):
 
 def _write_tmp_jpg(pdf_path, pdf_page="ALL"):
     """Write event history page of PDF to a temporary jpg file."""
+    if not os.path.isdir(TEMP_DIR):
+        os.path.mkdir(TEMP_DIR)
     result = pdf2jpg.convert_pdf2jpg(pdf_path, TEMP_DIR, pages=pdf_page)
     print(result)
 

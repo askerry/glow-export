@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import os
 
 import pandas as pd
@@ -5,7 +7,10 @@ import pandas as pd
 import parse_history
 import parse_summary
 
+# Directory containing PDF data exports
 PDF_DIR = "pdfs"
+
+# Directory where output CSVs will be written
 OUTPUT_DIR = "csvs"
 
 
@@ -24,6 +29,7 @@ def _write_events(events):
 
 
 def process_export_pdfs():
+
     # Attempt to parse all PDFS in the specified directory
     files = os.listdir(PDF_DIR)
     summary_rows, events = [], []
@@ -33,6 +39,9 @@ def process_export_pdfs():
         summary_rows.append(parse_summary.parse(PDF_DIR, f))
         events.append(parse_history.extract(PDF_DIR, f))
 
+    # Write results to CSV
+    if not os.path.isdir(OUTPUT_DIR):
+        os.path.mkdir(OUTPUT_DIR)
     _write_summary(summary_rows)
     _write_events(events)
 
