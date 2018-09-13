@@ -8,6 +8,9 @@ layout) to extract a raw event history.
 
 import datetime
 import os
+import pathlib
+import shutil
+import subprocess
 
 import numpy as np
 import pandas as pd
@@ -47,16 +50,25 @@ def extract(PDF_DIR, filename):
     the pdg to an image and processing the pixel values."""
 
     pdf_path = os.path.join(PDF_DIR, filename)
-    # _write_tmp_jpg(pdf_path, pdf_page="1")
-    return _read_and_process_tmp_jpg(filename)
+    tmp_subdir = _write_tmp_jpg(pdf_path, pdf_page="1")
+    results = _read_and_process_tmp_jpg(filename)
+    shutil.rmtree(tmp_subdir)
+    return results
 
 
 def _write_tmp_jpg(pdf_path, pdf_page="ALL"):
     """Write event history page of PDF to a temporary jpg file."""
     if not os.path.isdir(TEMP_DIR):
         os.path.mkdir(TEMP_DIR)
-    result = pdf2jpg.convert_pdf2jpg(pdf_path, TEMP_DIR, pages=pdf_page)
-    print(result)
+
+    # HACK: due to bug in pdf2jpg, we need to construct command to execute
+    # jar file directly, rather than relying on convert_pdf2jpg
+    pdf_convert_dir = pathlib.Path(pdf2jpg.__file__).resolve().parent
+    jar_file = os.path.join(pdf_convert_dir, "pdf2jpg.jar")
+    cmd = 'java -jar %s -i "%s" -o "%s" -p 1' % (jar_file, pdf_path, TEMP_DIR)
+    output = subprocess.check_output(cmd, shell=True)
+    tmp_subdir = output.split(b'\n')[0]
+    return tmp_subdir
 
 
 def _read_and_process_tmp_jpg(filename):
