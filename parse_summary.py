@@ -118,9 +118,21 @@ def _parse_feedings(df):
                 continue
             column = "%s:%s" % (bottle_type, name)
             value = row.values[i].replace(" mins", "")
+            value = _maybe_extract_ounces(value)
             if value == "N/A":
                 value = np.nan
             columns.append(column)
             data.append(value)
     return pd.DataFrame(columns=columns, data=[data])
+
+
+def _maybe_extract_ounces(string):
+    """Extract integer oz values from a compound data field."""
+
+    # Expects a format like the following: "93 ml / 3.1 oz"
+    match = re.match("[\d.]* ml \/ ([\d.]*) oz", string)
+    if match:
+        ounces = match.groups()[0]
+        return ounces
+    return string
 

@@ -25,8 +25,8 @@ START_COORDINATE = (392, 412)
 # Constants for extracting diaper and feeding pixels
 SEGMENT_WIDTH = 723
 DAY_HEIGHT = 346
-FEEDING_HEIGHT = 200
-DIAPER_HEIGHT = 60
+BREASTFEEDING_HEIGHT = 200
+SECONDARY_HEIGHT = 60
 PADDING_HEIGHT = 20
 
 # There are 7 days in a week and 6 4-hour segments per day
@@ -36,10 +36,11 @@ NUM_BINS = 6
 # Each segment is 4 hrs long
 PIXELS_PER_MINUTE = SEGMENT_WIDTH / 4.0 / 60.0
 
-BLUE = "BLUE"
-YELLOW = "YELLOW"
-WHITE = "WHITE"
-DARK = "DARK"
+DIAPER = "BLUE"
+BREASTFEEDING = "YELLOW"
+PUMPING = "ORANGE"
+EMPTY = "WHITE"
+TEXT = "DARK"
 
 
 def extract(PDF_DIR, filename):
@@ -90,12 +91,16 @@ def _extract_windows(pixels, start_date):
     for day in range(NUM_DAYS):
         date = start_date + datetime.timedelta(days=6 - day)
         for bin_num in range(NUM_BINS):
-            window_feedings, window_diapers = _extract_window(
+            w_feedings, w_diapers, w_bottles, w_pumping = _extract_window(
                 pixels, day, bin_num, date)
-            for (dt, duration) in window_feedings:
+            for (dt, duration) in w_feedings:
                 data.append([dt, "breastfeeding", duration])
-            for (dt, duration) in window_diapers:
+            for (dt, _) in w_diapers:
                 data.append([dt, "diaper", np.nan])
+            for (dt, _) in w_bottles:
+                data.append([dt, "bottle", np.nan])
+            for (dt, _) in w_pumping:
+                data.append([dt, "pumping", np.nan])
     return pd.DataFrame(columns=columns, data=data)
 
 
@@ -107,22 +112,29 @@ def _extract_window(pixels, day, bin_num, date):
     end_j = start_j + DAY_HEIGHT
     raw_feedings = extract_timeseries(
         "breastfeeding", pixels, start_i, end_i, start_j, end_j)
+    raw_bottles = extract_timeseries(
+        "bottles", pixels, start_i, end_i, start_j, end_j)
     raw_diapers = extract_timeseries(
         "diapers", pixels, start_i, end_i, start_j, end_j)
+    raw_pumping = extract_timeseries(
+        "pumping", pixels, start_i, end_i, start_j, end_j)
     feedings = process_timeseries(raw_feedings, bin_num, date)
     diapers = process_timeseries(raw_diapers, bin_num, date)
-    return feedings, diapers
+    bottles = process_timeseries(raw_bottles, bin_num, date)
+    pumping = process_timeseries(raw_pumping, bin_num, date)
+    return feedings, diapers, bottles, pumping
 
 
 def _get_color_range(r, g, b):
     """Returns the appropriate color range for rgb value."""
-    THRESHOLD = 235
     if r == g == b:
-        return WHITE if r >= THRESHOLD else DARK
-    elif b >= THRESHOLD and r < THRESHOLD and g < THRESHOLD:
-        return BLUE
-    elif r > THRESHOLD and b < THRESHOLD and g < THRESHOLD:
-        return YELLOW
+        return EMPTY if r >= 230 else TEXT
+    elif b >= 230 and r < 230 and g < 230:
+        return DIAPER
+    elif (r > 230 and g < 230 and g > 200 and b < 140 and b > 60):
+        return BREASTFEEDING
+    elif b < 80 and r > 230:
+        return PUMPING
     else:
         return None
 
@@ -166,14 +178,23 @@ def extract_timeseries(timeseries_type, pixels, start_i, end_i, start_j, end_j):
     Returns an array corresponding to the time (x) dimension with a 1 if the
     specified event is occuring at that pixel, a 0 if the event is absent."""
 
+    primary_start = start_j + PADDING_HEIGHT
+    primary_end = primary_start + BREASTFEEDING_HEIGHT
+    secondary_start = start_j + PADDING_HEIGHT * 2 + BREASTFEEDING_HEIGHT
+    secondary_end = secondary_start + SECONDARY_HEIGHT
+
     if timeseries_type == "breastfeeding":
-        target_color = YELLOW
-        vertical_start = start_j + PADDING_HEIGHT
-        vertical_end = vertical_start + FEEDING_HEIGHT
+        target_color = BREASTFEEDING
+        vertical_start, vertical_end = primary_start, primary_end
     elif timeseries_type == "diapers":
-        target_color = BLUE
-        vertical_start = start_j + PADDING_HEIGHT * 2 + FEEDING_HEIGHT
-        vertical_end = vertical_start + DIAPER_HEIGHT
+        target_color = DIAPER
+        vertical_start, vertical_end = secondary_start, secondary_end
+    elif timeseries_type == "bottles":
+        target_color = BREASTFEEDING
+        vertical_start, vertical_end = secondary_start, secondary_end
+    elif timeseries_type == "pumping":
+        target_color = PUMPING
+        vertical_start, vertical_end = secondary_start, secondary_end
     else:
         raise ValueError("Invalid type %s" % timeseries_type)
 
@@ -184,7 +205,7 @@ def extract_timeseries(timeseries_type, pixels, start_i, end_i, start_j, end_j):
         rgb_color = _get_average_rgb(
             pixels, x, x + 1, vertical_start, vertical_end)
         color_range = _get_color_range(*rgb_color)
-        if color_range == WHITE:
+        if color_range == EMPTY:
             results.append(0)
         elif color_range == target_color:
             results.append(1)
